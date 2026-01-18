@@ -1,0 +1,66 @@
+import { Tool } from '@/types/tool'
+
+export const tools: Tool[] = [
+  {
+    id: 'canva',
+    name: 'Canva 工具集',
+    description: '設計相關工具集合，包含圖片編輯、尺寸調整等功能',
+    icon: '🎨',
+    category: 'design',
+    tags: ['設計', '圖片', '編輯'],
+    route: '/tools/canva',
+  },
+  {
+    id: 'color-picker',
+    name: '顏色選擇器',
+    description: '快速選取並複製顏色代碼，支援多種格式',
+    icon: '🎨',
+    category: 'design',
+    tags: ['顏色', '設計', '工具'],
+    route: '/tools/color-picker',
+  },
+  {
+    id: 'json-formatter',
+    name: 'JSON 格式化工具',
+    description: '美化與驗證 JSON 格式，提升開發效率',
+    icon: '📝',
+    category: 'developer',
+    tags: ['開發', 'JSON', '格式化'],
+    route: '/tools/json-formatter',
+  },
+  {
+    id: 'base64-encoder',
+    name: 'Base64 編解碼器',
+    description: '快速進行 Base64 編碼與解碼',
+    icon: '🔐',
+    category: 'developer',
+    tags: ['開發', 'Base64', '編碼'],
+    route: '/tools/base64-encoder',
+  },
+  {
+    id: 'qr-generator',
+    name: 'QR Code 生成器',
+    description: '生成自訂樣式的 QR Code',
+    icon: '📱',
+    category: 'utility',
+    tags: ['QR Code', '生成', '工具'],
+    route: '/tools/qr-generator',
+  },
+  {
+    id: 'password-generator',
+    name: '密碼生成器',
+    description: '生成安全且隨機的密碼',
+    icon: '🔒',
+    category: 'security',
+    tags: ['安全', '密碼', '生成'],
+    route: '/tools/password-generator',
+  },
+]
+
+export const categories = [
+  { id: 'all', name: '全部工具', description: '' },
+  { id: 'design', name: '設計工具', description: '圖片編輯、顏色選擇等設計相關工具' },
+  { id: 'developer', name: '開發工具', description: '程式開發與除錯工具' },
+  { id: 'utility', name: '實用工具', description: '日常使用的便利工具' },
+  { id: 'security', name: '安全工具', description: '密碼與安全相關工具' },
+]
