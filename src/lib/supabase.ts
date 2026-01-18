@@ -15,7 +15,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 // 測試連線
 export const testConnection = async () => {
   try {
-    const { data, error } = await supabase.from('canva_prompts').select('count').limit(1)
+    const { error } = await supabase.from('canva_prompts').select('count').limit(1)
     if (error) {
       console.error('Supabase connection error:', error)
       return false
