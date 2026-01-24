@@ -20,9 +20,24 @@ export default function ToolGameMusic() {
   const [loading, setLoading] = useState(false)
 
   const fetchStatus = async () => {
-    const resp = await fetch('/api/music/status')
-    const data = await resp.json()
-    setStatus(data)
+    try {
+      const resp = await fetch('/api/music/status')
+      const ct = resp.headers.get('content-type') || ''
+      if (!resp.ok) {
+        const text = await resp.text()
+        setStatus({ installed: false, downloading: false, message: `status 失敗(${resp.status}): ${text}` })
+        return
+      }
+      if (!ct.includes('application/json')) {
+        const text = await resp.text()
+        setStatus({ installed: false, downloading: false, message: `status 回傳非 JSON: ${text}` })
+        return
+      }
+      const data = await resp.json()
+      setStatus(data)
+    } catch (e: any) {
+      setStatus({ installed: false, downloading: false, message: `status 例外: ${e?.message || String(e)}` })
+    }
   }
 
   useEffect(() => {
@@ -31,22 +46,52 @@ export default function ToolGameMusic() {
 
   const handleSetup = async () => {
     setLoading(true)
-    await fetch('/api/music/setup', { method: 'POST' })
-    await fetchStatus()
-    setLoading(false)
+    try {
+      const resp = await fetch('/api/music/setup', { method: 'POST' })
+      const ct = resp.headers.get('content-type') || ''
+      if (!resp.ok) {
+        const text = await resp.text()
+        setStatus({ installed: false, downloading: false, message: `setup 失敗(${resp.status}): ${text}` })
+      } else if (!ct.includes('application/json')) {
+        const text = await resp.text()
+        setStatus({ installed: false, downloading: false, message: `setup 回傳非 JSON: ${text}` })
+      }
+      await fetchStatus()
+    } catch (e: any) {
+      setStatus({ installed: false, downloading: false, message: `setup 例外: ${e?.message || String(e)}` })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleGenerate = async () => {
     setLoading(true)
     setWavUrl(null)
-    const resp = await fetch('/api/music/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mood, tempo, duration }),
-    })
-    const data = await resp.json()
-    setLoading(false)
-    if (data.url) setWavUrl(data.url + `?t=${Date.now()}`)
+    try {
+      const resp = await fetch('/api/music/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mood, tempo, duration }),
+      })
+      const ct = resp.headers.get('content-type') || ''
+      if (!resp.ok) {
+        const text = await resp.text()
+        setStatus((s) => ({ ...s, message: `generate 失敗(${resp.status}): ${text}` }))
+        return
+      }
+      if (!ct.includes('application/json')) {
+        const text = await resp.text()
+        setStatus((s) => ({ ...s, message: `generate 回傳非 JSON: ${text}` }))
+        return
+      }
+      const data = await resp.json()
+      if (data.url) setWavUrl(data.url + `?t=${Date.now()}`)
+      else setStatus((s) => ({ ...s, message: data?.message || 'generate 失敗：沒有回傳 url' }))
+    } catch (e: any) {
+      setStatus((s) => ({ ...s, message: `generate 例外: ${e?.message || String(e)}` }))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
