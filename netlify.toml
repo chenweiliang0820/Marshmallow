@@ -1,0 +1,8 @@
+# Netlify 設定檔：讓 SPA (Single Page App) 路由正常運作
+
+# 將所有找不到檔案的路徑都重導向到 index.html
+# 這樣 React Router 才能接管並顯示正確的頁面
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
