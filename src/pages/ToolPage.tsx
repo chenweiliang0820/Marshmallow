@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { tools } from '@/data/tools'
 import ToolCanva from '@/tools/canva/ToolCanva'
+import ToolGameMusic from '@/tools/gameMusic/ToolGameMusic'
 
 export default function ToolPage() {
   const { toolId } = useParams<{ toolId: string }>()
@@ -29,6 +30,8 @@ export default function ToolPage() {
     switch (toolId) {
       case 'canva':
         return <ToolCanva />
+      case 'game-music':
+        return <ToolGameMusic />
       default:
         return (
           <div className="glass-effect p-8 rounded-xl text-center">

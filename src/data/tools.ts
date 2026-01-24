@@ -55,6 +55,15 @@ export const tools: Tool[] = [
     tags: ['安全', '密碼', '生成'],
     route: '/tools/password-generator',
   },
+  {
+    id: 'game-music',
+    name: '遊戲音樂生成',
+    description: '用最簡單可擴充的方式生成遊戲背景音樂（先 MIDI 再 WAV）',
+    icon: '🎵',
+    category: 'utility',
+    tags: ['音樂', 'MIDI', 'WAV', '遊戲'],
+    route: '/tools/game-music',
+  },
 ]
 
 export const categories = [
