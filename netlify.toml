@@ -1,7 +1,22 @@
-# Netlify 設定檔：讓 SPA (Single Page App) 路由正常運作
+# Netlify 設定檔
 
-# 將所有找不到檔案的路徑都重導向到 index.html
-# 這樣 React Router 才能接管並顯示正確的頁面
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# API: /api/* -> /.netlify/functions/*
+[[redirects]]
+  from = "/api/music/status"
+  to = "/.netlify/functions/music-status"
+  status = 200
+
+[[redirects]]
+  from = "/api/music/generate"
+  to = "/.netlify/functions/music-generate"
+  status = 200
+
+# SPA fallback: 其他路由都交給前端
 [[redirects]]
   from = "/*"
   to = "/index.html"

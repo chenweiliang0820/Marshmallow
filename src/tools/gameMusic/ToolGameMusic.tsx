@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getApiUrl, getMusicUrl } from '@/lib/api'
 
 interface StatusResp {
   installed: boolean
@@ -21,7 +22,7 @@ export default function ToolGameMusic() {
 
   const fetchStatus = async () => {
     try {
-      const resp = await fetch('/api/music/status')
+      const resp = await fetch(getApiUrl('/api/music/status'))
       const ct = resp.headers.get('content-type') || ''
       if (!resp.ok) {
         const text = await resp.text()
@@ -47,7 +48,7 @@ export default function ToolGameMusic() {
   const handleSetup = async () => {
     setLoading(true)
     try {
-      const resp = await fetch('/api/music/setup', { method: 'POST' })
+      const resp = await fetch(getApiUrl('/api/music/setup'), { method: 'POST' })
       const ct = resp.headers.get('content-type') || ''
       if (!resp.ok) {
         const text = await resp.text()
@@ -68,7 +69,7 @@ export default function ToolGameMusic() {
     setLoading(true)
     setWavUrl(null)
     try {
-      const resp = await fetch('/api/music/generate', {
+      const resp = await fetch(getApiUrl('/api/music/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mood, tempo, duration }),
@@ -85,7 +86,7 @@ export default function ToolGameMusic() {
         return
       }
       const data = await resp.json()
-      if (data.url) setWavUrl(data.url + `?t=${Date.now()}`)
+      if (data.url) setWavUrl(getMusicUrl(data.url) + `?t=${Date.now()}`)
       else setStatus((s) => ({ ...s, message: data?.message || 'generate 失敗：沒有回傳 url' }))
     } catch (e: any) {
       setStatus((s) => ({ ...s, message: `generate 例外: ${e?.message || String(e)}` }))
@@ -116,32 +117,48 @@ export default function ToolGameMusic() {
       )}
 
       {/* Form */}
-      {status.installed && (
-        <div className="space-y-4 bg-white/5 p-4 rounded-lg">
-          <div className="flex gap-4 items-center">
-            <label className="w-20">Mood</label>
-            <select value={mood} onChange={(e) => setMood(e.target.value as 'calm' | 'tense')}
-              className="flex-1 bg-gray-800 text-white p-2 rounded">
-              <option value="calm">Calm</option>
-              <option value="tense">Tense</option>
-            </select>
-          </div>
-          <div className="flex gap-4 items-center">
-            <label className="w-20">Tempo</label>
-            <input type="number" value={tempo} min={60} max={200} onChange={(e) => setTempo(Number(e.target.value))}
-              className="flex-1 bg-gray-800 text-white p-2 rounded" />
-          </div>
-          <div className="flex gap-4 items-center">
-            <label className="w-20">Duration</label>
-            <input type="number" value={duration} min={30} max={60} onChange={(e) => setDuration(Number(e.target.value))}
-              className="flex-1 bg-gray-800 text-white p-2 rounded" />
-          </div>
-          <button onClick={handleGenerate} disabled={loading}
-            className="px-4 py-2 bg-neon-cyan rounded hover:bg-neon-cyan/80 disabled:opacity-50">
-            {loading ? '生成中...' : '生成音樂'}
-          </button>
+      <div className="space-y-4 bg-white/5 p-4 rounded-lg">
+        <div className="flex gap-4 items-center">
+          <label className="w-20">Mood</label>
+          <select
+            value={mood}
+            onChange={(e) => setMood(e.target.value as 'calm' | 'tense')}
+            className="flex-1 bg-gray-800 text-white p-2 rounded"
+          >
+            <option value="calm">Calm</option>
+            <option value="tense">Tense</option>
+          </select>
         </div>
-      )}
+        <div className="flex gap-4 items-center">
+          <label className="w-20">Tempo</label>
+          <input
+            type="number"
+            value={tempo}
+            min={60}
+            max={200}
+            onChange={(e) => setTempo(Number(e.target.value))}
+            className="flex-1 bg-gray-800 text-white p-2 rounded"
+          />
+        </div>
+        <div className="flex gap-4 items-center">
+          <label className="w-20">Duration</label>
+          <input
+            type="number"
+            value={duration}
+            min={3}
+            max={20}
+            onChange={(e) => setDuration(Number(e.target.value))}
+            className="flex-1 bg-gray-800 text-white p-2 rounded"
+          />
+        </div>
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="px-4 py-2 bg-neon-cyan rounded hover:bg-neon-cyan/80 disabled:opacity-50"
+        >
+          {loading ? '生成中...' : '生成音樂'}
+        </button>
+      </div>
 
       {/* Result */}
       {wavUrl && (
