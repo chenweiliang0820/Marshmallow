@@ -3,14 +3,13 @@ const path = require('path')
 const fs = require('fs')
 const fsp = fs.promises
 const https = require('https')
+const os = require('os')
 const { spawn } = require('child_process')
 
 const app = express()
 
-// Basic middleware
 app.use(express.json())
 
-// Request log (helps debug "white screen" / silent failures)
 app.use((req, _res, next) => {
   // eslint-disable-next-line no-console
   console.log(`[music-api] ${req.method} ${req.url}`)
@@ -18,9 +17,16 @@ app.use((req, _res, next) => {
 })
 
 const PROJECT_ROOT = path.resolve(__dirname, '..')
-const CACHE_DIR = path.join(PROJECT_ROOT, '.cache', 'music')
+
+// IMPORTANT: avoid non-ascii project paths on Windows.
+// Default cache path is in user home (ASCII-friendly), can be overridden by env.
+const CACHE_ROOT = process.env.MARSHMALLOW_CACHE_DIR || path.join(os.homedir(), '.marshmallow-cache')
+const CACHE_DIR = path.join(CACHE_ROOT, 'music')
+
 const BIN_DIR = path.join(CACHE_DIR, 'bin')
 const SOUNDFONT_DIR = path.join(CACHE_DIR, 'soundfonts')
+
+// Output stays in the project so the front-end can access it.
 const PUBLIC_GEN_DIR = path.join(PROJECT_ROOT, 'public', 'generated')
 
 const FLUIDSYNTH_EXE = path.join(BIN_DIR, 'fluidsynth.exe')
@@ -41,42 +47,36 @@ function ensureDirSync(dir) {
   fs.mkdirSync(dir, { recursive: true })
 }
 
-function downloadFile(url, dest, onProgress) {
+function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     ensureDirSync(path.dirname(dest))
 
     const file = fs.createWriteStream(dest)
-    https.get(url, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+    https
+      .get(url, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          file.close()
+          fs.unlink(dest, () => {})
+          return resolve(downloadFile(res.headers.location, dest))
+        }
+
+        if (res.statusCode !== 200) {
+          file.close()
+          fs.unlink(dest, () => {})
+          return reject(new Error(`下載失敗: ${url} (${res.statusCode})`))
+        }
+
+        res.pipe(file)
+
+        file.on('finish', () => {
+          file.close(() => resolve())
+        })
+      })
+      .on('error', (err) => {
         file.close()
         fs.unlink(dest, () => {})
-        return resolve(downloadFile(res.headers.location, dest, onProgress))
-      }
-
-      if (res.statusCode !== 200) {
-        file.close()
-        fs.unlink(dest, () => {})
-        return reject(new Error(`下載失敗: ${url} (${res.statusCode})`))
-      }
-
-      const total = parseInt(res.headers['content-length'] || '0', 10)
-      let downloaded = 0
-
-      res.on('data', (chunk) => {
-        downloaded += chunk.length
-        if (onProgress) onProgress({ downloaded, total })
+        reject(err)
       })
-
-      res.pipe(file)
-
-      file.on('finish', () => {
-        file.close(() => resolve())
-      })
-    }).on('error', (err) => {
-      file.close()
-      fs.unlink(dest, () => {})
-      reject(err)
-    })
   })
 }
 
@@ -94,25 +94,48 @@ function run(cmd, args, opts = {}) {
   })
 }
 
-async function ensureSetup() {
+async function ensureSetupDirs() {
   ensureDirSync(CACHE_DIR)
   ensureDirSync(BIN_DIR)
   ensureDirSync(SOUNDFONT_DIR)
   ensureDirSync(PUBLIC_GEN_DIR)
+}
 
+async function locateFluidsynthExe() {
+  if (fs.existsSync(FLUIDSYNTH_EXE)) return FLUIDSYNTH_EXE
+
+  const findResult = await run('powershell', [
+    '-NoProfile',
+    '-Command',
+    `Get-ChildItem -Path \"${CACHE_DIR}\" -Recurse -Filter fluidsynth.exe | Select-Object -First 1 -ExpandProperty FullName`,
+  ])
+
+  const found = (findResult.stdout || '').trim()
+  if (!found) throw new Error('解壓後找不到 fluidsynth.exe')
+
+  if (!fs.existsSync(found)) {
+    throw new Error(`找到 fluidsynth.exe 路徑但檔案不存在: ${found}`)
+  }
+
+  return found
+}
+
+async function getStatus() {
+  await ensureSetupDirs()
   const fluidsynthOk = fs.existsSync(FLUIDSYNTH_EXE)
   const sfOk = fs.existsSync(SOUNDFONT_FILE)
-
   return { fluidsynthOk, sfOk }
 }
 
 app.get('/api/music/status', async (_req, res, next) => {
   try {
-    const { fluidsynthOk, sfOk } = await ensureSetup()
+    const { fluidsynthOk, sfOk } = await getStatus()
     const installed = fluidsynthOk && sfOk
+
     res.json({
       installed,
       downloading: setupState.downloading,
+      cacheDir: CACHE_DIR,
       message: installed
         ? `fluidsynth=${FLUIDSYNTH_EXE}; soundfont=${SOUNDFONT_FILE}`
         : setupState.message || `缺少: ${!fluidsynthOk ? 'fluidsynth ' : ''}${!sfOk ? 'soundfont' : ''}`,
@@ -131,9 +154,9 @@ app.post('/api/music/setup', async (_req, res) => {
   setupState.message = '開始下載...'
 
   try {
-    await ensureSetup()
+    await ensureSetupDirs()
 
-    const { fluidsynthOk, sfOk } = await ensureSetup()
+    const { fluidsynthOk, sfOk } = await getStatus()
 
     if (!fluidsynthOk) {
       setupState.message = '下載 fluidsynth...'
@@ -143,14 +166,10 @@ app.post('/api/music/setup', async (_req, res) => {
       setupState.message = '解壓 fluidsynth...'
       await run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force \"${zipPath}\" \"${CACHE_DIR}\"`])
 
-      const findResult = await run('powershell', [
-        '-NoProfile',
-        '-Command',
-        `Get-ChildItem -Path \"${CACHE_DIR}\" -Recurse -Filter fluidsynth.exe | Select-Object -First 1 -ExpandProperty FullName`,
-      ])
-      const found = findResult.stdout.trim()
-      if (!found) throw new Error('解壓後找不到 fluidsynth.exe')
+      setupState.message = '定位 fluidsynth.exe...'
+      const found = await locateFluidsynthExe()
 
+      setupState.message = `複製 fluidsynth.exe... (${found})`
       await fsp.copyFile(found, FLUIDSYNTH_EXE)
     }
 
@@ -162,19 +181,19 @@ app.post('/api/music/setup', async (_req, res) => {
     setupState.message = '完成'
     setupState.downloading = false
 
-    const status = await ensureSetup()
-    return res.json({ ok: true, ...status })
+    const status = await getStatus()
+    return res.json({ ok: true, ...status, cacheDir: CACHE_DIR })
   } catch (e) {
     setupState.downloading = false
     setupState.message = `失敗: ${e && e.message ? e.message : String(e)}`
-    return res.status(500).json({ ok: false, message: setupState.message })
+    return res.status(500).json({ ok: false, message: setupState.message, cacheDir: CACHE_DIR })
   }
 })
 
 app.post('/api/music/generate', async (req, res) => {
   try {
     const { mood, tempo, duration } = req.body || {}
-    const { fluidsynthOk, sfOk } = await ensureSetup()
+    const { fluidsynthOk, sfOk } = await getStatus()
     if (!fluidsynthOk || !sfOk) {
       return res.status(400).json({ ok: false, message: '尚未完成安裝，請先執行 setup' })
     }
@@ -207,7 +226,7 @@ app.post('/api/music/generate', async (req, res) => {
   }
 })
 
-// Global error handler: never return empty 500
+// Global error handler
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   // eslint-disable-next-line no-console
@@ -220,4 +239,6 @@ const PORT = process.env.MUSIC_SERVER_PORT ? parseInt(process.env.MUSIC_SERVER_P
 app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Music server listening on http://localhost:${PORT}`)
+  // eslint-disable-next-line no-console
+  console.log(`Music cache dir: ${CACHE_DIR}`)
 })
