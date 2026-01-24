@@ -6,7 +6,16 @@ const https = require('https')
 const { spawn } = require('child_process')
 
 const app = express()
+
+// Basic middleware
 app.use(express.json())
+
+// Request log (helps debug "white screen" / silent failures)
+app.use((req, _res, next) => {
+  // eslint-disable-next-line no-console
+  console.log(`[music-api] ${req.method} ${req.url}`)
+  next()
+})
 
 const PROJECT_ROOT = path.resolve(__dirname, '..')
 const CACHE_DIR = path.join(PROJECT_ROOT, '.cache', 'music')
@@ -18,7 +27,8 @@ const FLUIDSYNTH_EXE = path.join(BIN_DIR, 'fluidsynth.exe')
 const SOUNDFONT_FILE = path.join(SOUNDFONT_DIR, 'GeneralUser-GS.sf2')
 const PY_SCRIPT = path.join(PROJECT_ROOT, 'tools', 'music_generator', 'music_generator.py')
 
-const FLUIDSYNTH_URL = 'https://github.com/FluidSynth/fluidsynth/releases/download/v2.5.2/fluidsynth-2.5.2-win10-x64.zip'
+// NOTE: GitHub release asset names can change; this must point to a real file.
+const FLUIDSYNTH_URL = 'https://github.com/FluidSynth/fluidsynth/releases/download/v2.5.2/fluidsynth-v2.5.2-win10-x86-cpp11.zip'
 // GeneralUser GS SoundFont (public download mirror)
 const SOUNDFONT_URL = 'https://github.com/urish/cinto/releases/download/v1.0.0/GeneralUser-GS.sf2'
 
@@ -96,16 +106,20 @@ async function ensureSetup() {
   return { fluidsynthOk, sfOk }
 }
 
-app.get('/api/music/status', async (_req, res) => {
-  const { fluidsynthOk, sfOk } = await ensureSetup()
-  const installed = fluidsynthOk && sfOk
-  res.json({
-    installed,
-    downloading: setupState.downloading,
-    message: installed
-      ? `fluidsynth=${FLUIDSYNTH_EXE}; soundfont=${SOUNDFONT_FILE}`
-      : setupState.message || `缺少: ${!fluidsynthOk ? 'fluidsynth ' : ''}${!sfOk ? 'soundfont' : ''}`,
-  })
+app.get('/api/music/status', async (_req, res, next) => {
+  try {
+    const { fluidsynthOk, sfOk } = await ensureSetup()
+    const installed = fluidsynthOk && sfOk
+    res.json({
+      installed,
+      downloading: setupState.downloading,
+      message: installed
+        ? `fluidsynth=${FLUIDSYNTH_EXE}; soundfont=${SOUNDFONT_FILE}`
+        : setupState.message || `缺少: ${!fluidsynthOk ? 'fluidsynth ' : ''}${!sfOk ? 'soundfont' : ''}`,
+    })
+  } catch (e) {
+    next(e)
+  }
 })
 
 app.post('/api/music/setup', async (_req, res) => {
@@ -127,19 +141,16 @@ app.post('/api/music/setup', async (_req, res) => {
       await downloadFile(FLUIDSYNTH_URL, zipPath)
 
       setupState.message = '解壓 fluidsynth...'
-      // Use PowerShell Expand-Archive on Windows
-      await run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force "${zipPath}" "${CACHE_DIR}"`])
+      await run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force \"${zipPath}\" \"${CACHE_DIR}\"`])
 
-      // Find fluidsynth.exe inside extracted folder
       const findResult = await run('powershell', [
         '-NoProfile',
         '-Command',
-        `Get-ChildItem -Path "${CACHE_DIR}" -Recurse -Filter fluidsynth.exe | Select-Object -First 1 -ExpandProperty FullName`,
+        `Get-ChildItem -Path \"${CACHE_DIR}\" -Recurse -Filter fluidsynth.exe | Select-Object -First 1 -ExpandProperty FullName`,
       ])
       const found = findResult.stdout.trim()
       if (!found) throw new Error('解壓後找不到 fluidsynth.exe')
 
-      // Copy to BIN_DIR
       await fsp.copyFile(found, FLUIDSYNTH_EXE)
     }
 
@@ -194,6 +205,15 @@ app.post('/api/music/generate', async (req, res) => {
   } catch (e) {
     return res.status(500).json({ ok: false, message: e && e.message ? e.message : String(e) })
   }
+})
+
+// Global error handler: never return empty 500
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  // eslint-disable-next-line no-console
+  console.error('[music-api] error', err)
+  if (res.headersSent) return
+  res.status(500).type('text/plain').send(err && err.stack ? err.stack : String(err))
 })
 
 const PORT = process.env.MUSIC_SERVER_PORT ? parseInt(process.env.MUSIC_SERVER_PORT, 10) : 5174
