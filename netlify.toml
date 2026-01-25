@@ -16,6 +16,16 @@
   to = "/.netlify/functions/music-generate"
   status = 200
 
+[[redirects]]
+  from = "/api/music/list"
+  to = "/.netlify/functions/music-list"
+  status = 200
+
+[[redirects]]
+  from = "/api/music/delete"
+  to = "/.netlify/functions/music-delete"
+  status = 200
+
 # SPA fallback: 其他路由都交給前端
 [[redirects]]
   from = "/*"
