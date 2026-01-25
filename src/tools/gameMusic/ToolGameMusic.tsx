@@ -454,7 +454,7 @@ export default function ToolGameMusic() {
             <div className="text-xs text-white/60">seed: {String(musicMeta?.seed ?? '')}</div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="rounded-md bg-black/30 border border-white/10 p-3">
               <div className="text-xs text-white/60">Key / 調性</div>
               <div className="text-sm text-neon-cyan font-semibold">{String(musicMeta?.key?.pitchClass || '')}</div>
@@ -469,6 +469,15 @@ export default function ToolGameMusic() {
               <div className="text-xs text-white/60">Chord Prog / 和弦進行</div>
               <div className="text-sm text-white/90 break-words">{Array.isArray(musicMeta?.chords) ? musicMeta.chords.map((c: any) => c?.name).filter(Boolean).join(' → ') : ''}</div>
               <div className="text-xs text-white/60">bars: {Array.isArray(musicMeta?.chords) ? musicMeta.chords.length : 0}</div>
+            </div>
+
+            <div className="rounded-md bg-black/30 border border-white/10 p-3">
+              <div className="text-xs text-white/60">Synth Preset / 音色</div>
+              <div className="text-sm text-neon-cyan font-semibold">{String(musicMeta?.synthPreset?.leadPreset || '')}</div>
+              <div className="text-xs text-white/60 break-words">
+                lead: {String(musicMeta?.lead || '')}
+                {Array.isArray(musicMeta?.styles) && musicMeta.styles.length ? ` · styles: ${musicMeta.styles.join('、')}` : ''}
+              </div>
             </div>
           </div>
 
