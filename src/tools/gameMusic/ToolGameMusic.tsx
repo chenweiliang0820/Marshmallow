@@ -21,9 +21,35 @@ const defaultStatus: StatusResp = {
 
 export default function ToolGameMusic() {
   const [status, setStatus] = useState<StatusResp>(defaultStatus)
+
+  // 新版：用「主場景單選 + 次標籤多選 + 速度單選 + 主旋律可控」來生成更細節的 prompt
+  const [scene, setScene] = useState(
+    'exploration' as
+      | 'exploration'
+      | 'town'
+      | 'dungeon'
+      | 'battle'
+      | 'boss'
+      | 'stealth'
+      | 'puzzle'
+      | 'victory'
+      | 'gameover'
+      | 'ui'
+  )
+  const [themes, setThemes] = useState<string[]>([])
+  const [atmospheres, setAtmospheres] = useState<string[]>([])
+  const [styles, setStyles] = useState<string[]>([])
+  const [tempoPreset, setTempoPreset] = useState<'slow' | 'mid' | 'fast'>('mid')
+  const [lead, setLead] = useState<string>('鋼琴')
+  const [durationPreset, setDurationPreset] = useState<30 | 60 | 90 | 120>(90)
+  const [loopable, setLoopable] = useState(true)
+  const [avoid, setAvoid] = useState<string[]>(['不要人聲'])
+
+  // 舊 API 仍需要 mood/tempo/duration，因此用 prompt 推導回去
   const [mood, setMood] = useState<'calm' | 'tense'>('calm')
   const [tempo, setTempo] = useState(90)
   const [duration, setDuration] = useState(20)
+
   const [wavUrl, setWavUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState<MusicItem[]>([])
@@ -139,14 +165,76 @@ export default function ToolGameMusic() {
     }
   }
 
+  const sceneLabelMap: Record<typeof scene, string> = {
+    exploration: '探索/野外',
+    town: '城鎮/安全區',
+    dungeon: '地城/遺跡',
+    battle: '一般戰鬥',
+    boss: 'Boss 戰',
+    stealth: '潛行/追逐',
+    puzzle: '解謎/機關',
+    victory: '勝利/結算',
+    gameover: '失敗/Game Over',
+    ui: 'UI/主選單/商店',
+  }
+
+  const themeOptions = ['像素風', '可愛療癒', '高奇幻', '暗黑奇幻', '科幻', '賽博龐克', '恐怖', '蒸汽龐克', '和風/武俠/中式']
+  const atmosphereOptions = ['神秘', '溫暖', '孤獨', '壓迫', '宏偉', '霓虹', '荒涼']
+  const styleOptions = ['8-bit chiptune', '交響/電影感', '合成器電子', 'Lo-fi', 'Ambient 氛圍音', 'Rock/metal', '民族風']
+  const leadOptions = ['鋼琴', '弦樂(小提琴/弦樂群)', '木管(長笛/單簧管)', '銅管(號角/法國號)', '電吉他', '原聲吉他', '合成 lead', '民族樂器(笛/三味線/琵琶)']
+  const avoidOptions = ['不要人聲', '不要太吵', '不要太多低頻', '不要太歡樂', '不要太多即興/jazz 感', '不要太尖銳高頻', '不要長時間停頓']
+
+  const tempoPresetMap: Record<typeof tempoPreset, { label: string; bpm: number; bpmRange: string }> = {
+    slow: { label: '慢', bpm: 80, bpmRange: 'BPM 70–90' },
+    mid: { label: '中', bpm: 105, bpmRange: 'BPM 95–120' },
+    fast: { label: '快', bpm: 150, bpmRange: 'BPM 130–170' },
+  }
+
+  const toggleInList = (xs: string[], v: string, max: number) => {
+    if (xs.includes(v)) return xs.filter((x) => x !== v)
+    if (xs.length >= max) return xs
+    return [...xs, v]
+  }
+
+  const buildPrompt = () => {
+    const sceneLabel = sceneLabelMap[scene] || scene
+    const tempoInfo = tempoPresetMap[tempoPreset]
+
+    const themeTxt = themes.length ? `世界觀/題材：${themes.join('、')}，` : ''
+    const atmTxt = atmospheres.length ? `氛圍：${atmospheres.join('、')}。` : ''
+    const styleTxt = styles.length ? `風格/配器走向：${styles.join('、')}，` : ''
+    const leadTxt = lead ? `以${lead}擔任主旋律，` : ''
+    const durTxt = `長度 ${durationPreset} 秒${loopable ? '；可無縫循環' : ''}。`
+    const avoidTxt = avoid.length ? `避免：${avoid.join('、')}。` : ''
+
+    return `${sceneLabel}遊戲配樂，${themeTxt}${atmTxt}速度：${tempoInfo.label}（${tempoInfo.bpmRange}），拍號 4/4。${styleTxt}${leadTxt}${durTxt}${avoidTxt}`
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  useEffect(() => {
+    const tempoInfo = tempoPresetMap[tempoPreset]
+    setTempo(tempoInfo.bpm)
+
+    const tenseScenes: Array<typeof scene> = ['battle', 'boss', 'stealth']
+    const tenseAuras = new Set(['壓迫'])
+    const isTense = tenseScenes.includes(scene) || atmospheres.some((a) => tenseAuras.has(a))
+    setMood(isTense ? 'tense' : 'calm')
+
+    // 後端目前限制 3~20 秒，先用比例映射（保持 UI 60/90/120 的語意）
+    const mapped = Math.max(3, Math.min(20, Math.round(durationPreset / 6)))
+    setDuration(mapped)
+  }, [scene, atmospheres, tempoPreset, durationPreset])
+
   const handleGenerate = async () => {
+    const prompt = buildPrompt()
     setLoading(true)
     setWavUrl(null)
     try {
       const resp = await fetch(getApiUrl('/api/music/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mood, tempo, duration }),
+        body: JSON.stringify({ mood, tempo, duration, prompt, scene, themes, atmospheres, styles, lead, durationPreset, loopable, avoid }),
       })
       const ct = resp.headers.get('content-type') || ''
       if (!resp.ok) {
@@ -203,49 +291,142 @@ export default function ToolGameMusic() {
 
       {/* Form */}
       <div className="space-y-4 bg-white/5 p-4 rounded-lg">
-        <div className="flex gap-4 items-center">
-          <label className="w-20">Mood</label>
-          <select
-            value={mood}
-            onChange={(e) => setMood(e.target.value as 'calm' | 'tense')}
-            className="flex-1 bg-gray-800 text-white p-2 rounded"
-          >
-            <option value="calm">Calm</option>
-            <option value="tense">Tense</option>
-          </select>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="text-sm text-white/80">主場景（單選）</div>
+            <select
+              value={scene}
+              onChange={(e) => setScene(e.target.value as any)}
+              className="w-full bg-gray-800 text-white p-2 rounded"
+            >
+              {Object.entries(sceneLabelMap).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm text-white/80">速度（單選）</div>
+            <select
+              value={tempoPreset}
+              onChange={(e) => setTempoPreset(e.target.value as any)}
+              className="w-full bg-gray-800 text-white p-2 rounded"
+            >
+              {Object.entries(tempoPresetMap).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v.label}（{v.bpmRange}）
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-white/50">實際送出：{tempo} BPM（後端生成用）</div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm text-white/80">主旋律樂器（可控）</div>
+            <select value={lead} onChange={(e) => setLead(e.target.value)} className="w-full bg-gray-800 text-white p-2 rounded">
+              {leadOptions.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm text-white/80">長度（可選）</div>
+            <select
+              value={durationPreset}
+              onChange={(e) => setDurationPreset(Number(e.target.value) as any)}
+              className="w-full bg-gray-800 text-white p-2 rounded"
+            >
+              {[30, 60, 90, 120].map((s) => (
+                <option key={s} value={s}>
+                  {s} 秒
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-white/50">後端限制 3~20 秒，會自動映射成：{duration} 秒</div>
+          </div>
         </div>
-        <div className="flex gap-4 items-center">
-          <label className="w-20">Tempo</label>
-          <input
-            type="number"
-            value={tempo}
-            min={60}
-            max={200}
-            onChange={(e) => {
-              const raw = e.target.value
-              const n = raw === '' ? NaN : Number(raw)
-              if (!Number.isFinite(n)) return
-              setTempo(Math.max(60, Math.min(200, n)))
-            }}
-            className="flex-1 bg-gray-800 text-white p-2 rounded"
-          />
+
+        <div className="space-y-2">
+          <label className="inline-flex items-center gap-2 text-sm text-white/80">
+            <input type="checkbox" checked={loopable} onChange={(e) => setLoopable(e.target.checked)} />
+            可無縫循環（Loop）
+          </label>
         </div>
-        <div className="flex gap-4 items-center">
-          <label className="w-20">Duration</label>
-          <input
-            type="number"
-            value={duration}
-            min={3}
-            max={20}
-            onChange={(e) => {
-              const raw = e.target.value
-              const n = raw === '' ? NaN : Number(raw)
-              if (!Number.isFinite(n)) return
-              setDuration(Math.max(3, Math.min(20, n)))
-            }}
-            className="flex-1 bg-gray-800 text-white p-2 rounded"
-          />
+
+        <div className="space-y-2">
+          <div className="text-sm text-white/80">世界觀/題材（多選，最多 2）</div>
+          <div className="flex flex-wrap gap-2">
+            {themeOptions.map((x) => (
+              <button
+                key={x}
+                type="button"
+                onClick={() => setThemes((s) => toggleInList(s, x, 2))}
+                className={`px-3 py-1.5 rounded text-sm border ${themes.includes(x) ? 'bg-neon-cyan/20 border-neon-cyan text-white' : 'bg-black/20 border-white/10 text-white/70 hover:text-white'}`}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
         </div>
+
+        <div className="space-y-2">
+          <div className="text-sm text-white/80">氛圍（多選，最多 2）</div>
+          <div className="flex flex-wrap gap-2">
+            {atmosphereOptions.map((x) => (
+              <button
+                key={x}
+                type="button"
+                onClick={() => setAtmospheres((s) => toggleInList(s, x, 2))}
+                className={`px-3 py-1.5 rounded text-sm border ${atmospheres.includes(x) ? 'bg-purple-500/20 border-purple-300 text-white' : 'bg-black/20 border-white/10 text-white/70 hover:text-white'}`}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm text-white/80">曲風/配器走向（多選，最多 2）</div>
+          <div className="flex flex-wrap gap-2">
+            {styleOptions.map((x) => (
+              <button
+                key={x}
+                type="button"
+                onClick={() => setStyles((s) => toggleInList(s, x, 2))}
+                className={`px-3 py-1.5 rounded text-sm border ${styles.includes(x) ? 'bg-emerald-500/20 border-emerald-300 text-white' : 'bg-black/20 border-white/10 text-white/70 hover:text-white'}`}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm text-white/80">避免項（多選，最多 3）</div>
+          <div className="flex flex-wrap gap-2">
+            {avoidOptions.map((x) => (
+              <button
+                key={x}
+                type="button"
+                onClick={() => setAvoid((s) => toggleInList(s, x, 3))}
+                className={`px-3 py-1.5 rounded text-sm border ${avoid.includes(x) ? 'bg-red-500/20 border-red-300 text-white' : 'bg-black/20 border-white/10 text-white/70 hover:text-white'}`}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm text-white/80">Prompt 預覽（將一併送到後端）</div>
+          <div className="bg-black/30 border border-white/10 rounded p-3 text-sm text-white/80 whitespace-pre-wrap">{buildPrompt()}</div>
+        </div>
+
         <button
           onClick={handleGenerate}
           disabled={loading || !status.installed}

@@ -325,6 +325,18 @@ export const handler = async (event) => {
     }
 
     const body = event.body ? JSON.parse(event.body) : {}
+
+    // 新版：允許前端傳入更細節的 prompt 與選項（不影響既有 mood/tempo/duration）
+    const prompt = typeof body.prompt === 'string' ? body.prompt : ''
+    const scene = typeof body.scene === 'string' ? body.scene : ''
+    const themes = Array.isArray(body.themes) ? body.themes : []
+    const atmospheres = Array.isArray(body.atmospheres) ? body.atmospheres : []
+    const styles = Array.isArray(body.styles) ? body.styles : []
+    const lead = typeof body.lead === 'string' ? body.lead : ''
+    const durationPreset = Number.isFinite(Number(body.durationPreset)) ? Number(body.durationPreset) : null
+    const loopable = typeof body.loopable === 'boolean' ? body.loopable : null
+    const avoid = Array.isArray(body.avoid) ? body.avoid : []
+
     const mood = body.mood
     const tempo = Number(body.tempo)
     const duration = Number(body.duration)
@@ -377,7 +389,18 @@ export const handler = async (event) => {
       ok: true,
       wav: { key: wavKey, url: pubWav.publicUrl },
       duration: actualDuration,
-      meta,
+      meta: {
+        ...meta,
+        prompt,
+        scene,
+        themes,
+        atmospheres,
+        styles,
+        lead,
+        durationPreset,
+        loopable,
+        avoid,
+      },
     })
   } catch (e) {
     return json(500, { ok: false, message: e?.stack || e?.message || String(e) })
