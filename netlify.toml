@@ -5,25 +5,10 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# API: /api/* -> /.netlify/functions/*
+# API: /api/music/* -> /.netlify/functions/music-*
 [[redirects]]
-  from = "/api/music/status"
-  to = "/.netlify/functions/music-status"
-  status = 200
-
-[[redirects]]
-  from = "/api/music/generate"
-  to = "/.netlify/functions/music-generate"
-  status = 200
-
-[[redirects]]
-  from = "/api/music/list"
-  to = "/.netlify/functions/music-list"
-  status = 200
-
-[[redirects]]
-  from = "/api/music/delete"
-  to = "/.netlify/functions/music-delete"
+  from = "/api/music/*"
+  to = "/.netlify/functions/music-:splat"
   status = 200
 
 # SPA fallback: 其他路由都交給前端
