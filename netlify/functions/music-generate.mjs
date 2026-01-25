@@ -117,7 +117,36 @@ function buildProgression(mood) {
   return mood === 'calm' ? [0, 7, 9, 5] : [0, 8, 3, 10]
 }
 
-function generateWavBuffer({ mood, tempo, duration }) {
+function noteName(midi) {
+  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+  const n = ((midi % 12) + 12) % 12
+  const oct = Math.floor(midi / 12) - 1
+  return `${names[n]}${oct}`
+}
+
+function pitchClassName(midi) {
+  return noteName(midi).replace(/\d+$/, '')
+}
+
+function degreeInScale(midi, keyRoot, scale) {
+  const pc = ((midi - keyRoot) % 12 + 12) % 12
+  const idx = scale.indexOf(pc)
+  return idx >= 0 ? idx + 1 : null
+}
+
+function makeRng(seed) {
+  let x = (seed >>> 0) || 1
+  return () => {
+    x ^= x << 13
+    x ^= x >>> 17
+    x ^= x << 5
+    return (x >>> 0) / 4294967296
+  }
+}
+
+function generateWavBuffer({ mood, tempo, duration, seed }) {
+  const rand = makeRng(seed)
+
   const sampleRate = 44100
   const d = clamp(duration, 3, 20) // Netlify functions：控制運算時間，避免 timeout
   const t = clamp(tempo, 40, 240)
@@ -127,6 +156,8 @@ function generateWavBuffer({ mood, tempo, duration }) {
   const beat = 60 / t
 
   let keyRoot, chordRoot, waveMix, detune, melodyDensity, velRange, noteLens
+  const chordsInfo = []
+  const melodyNotes = []
   if (mood === 'calm') {
     keyRoot = 60
     chordRoot = 48
@@ -157,6 +188,18 @@ function generateWavBuffer({ mood, tempo, duration }) {
     const root = chordRoot + deg
     const third = root + (mood === 'calm' ? 4 : 3)
     const fifth = root + 7
+
+    chordsInfo.push({
+      bar: bar + 1,
+      rootMidi: root,
+      notesMidi: [root, third, fifth],
+      name: `${pitchClassName(root)}${mood === 'calm' ? 'maj' : 'min'}`,
+      degrees: [
+        degreeInScale(root + 12, keyRoot, scale),
+        degreeInScale(third + 12, keyRoot, scale),
+        degreeInScale(fifth + 12, keyRoot, scale),
+      ],
+    })
 
     const padVel = mood === 'calm' ? 0.18 : 0.22
     for (const n of [root, third, fifth]) {
@@ -198,10 +241,11 @@ function generateWavBuffer({ mood, tempo, duration }) {
   const step = beat / melodyDensity
   const pitches = scale.flatMap((s) => [keyRoot + s, keyRoot + 12 + s])
   let tt = 0
+  let noteIndex = 0
   while (tt < d) {
-    const pitch = pitches[Math.floor(Math.random() * pitches.length)]
-    const vel = velRange[0] + Math.random() * (velRange[1] - velRange[0])
-    const lenBeats = noteLens[Math.floor(Math.random() * noteLens.length)]
+    const pitch = pitches[Math.floor(rand() * pitches.length)]
+    const vel = velRange[0] + rand() * (velRange[1] - velRange[0])
+    const lenBeats = noteLens[Math.floor(rand() * noteLens.length)]
     const len = lenBeats * beat
     const start = tt
     const end = Math.min(d, tt + len)
@@ -218,8 +262,17 @@ function generateWavBuffer({ mood, tempo, duration }) {
       detuneCents: detune,
     })
 
+    melodyNotes.push({
+      index: noteIndex++,
+      startS: Number(start.toFixed(3)),
+      durS: Number((end - start).toFixed(3)),
+      midi: pitch,
+      name: noteName(pitch),
+      degree: degreeInScale(pitch, keyRoot, scale),
+    })
+
     if (mood === 'calm') {
-      tt += end - start + (Math.random() < 0.5 ? 0 : step)
+      tt += end - start + (rand() < 0.5 ? 0 : step)
     } else {
       tt += step
     }
@@ -242,7 +295,27 @@ function generateWavBuffer({ mood, tempo, duration }) {
   }
 
   const wav = writeWavMono16(pcm16, sampleRate)
-  return { wav, duration: d }
+
+  const meta = {
+    seed,
+    mood,
+    tempo: t,
+    duration: d,
+    key: {
+      rootMidi: keyRoot,
+      name: noteName(keyRoot),
+      pitchClass: pitchClassName(keyRoot),
+    },
+    scale: {
+      pcs: scale,
+      names: scale.map((pc) => pitchClassName(keyRoot + pc)),
+    },
+    progression: prog,
+    chords: chordsInfo,
+    melody: melodyNotes,
+  }
+
+  return { wav, duration: d, meta }
 }
 
 export const handler = async (event) => {
@@ -277,7 +350,9 @@ export const handler = async (event) => {
       })
     }
 
-    const { wav, duration: actualDuration } = generateWavBuffer({ mood, tempo, duration })
+    const seed = Number.isFinite(Number(body.seed)) ? (Number(body.seed) >>> 0) : (Date.now() >>> 0)
+
+    const { wav, duration: actualDuration, meta } = generateWavBuffer({ mood, tempo, duration, seed })
 
     const client = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -302,6 +377,7 @@ export const handler = async (event) => {
       ok: true,
       wav: { key: wavKey, url: pubWav.publicUrl },
       duration: actualDuration,
+      meta,
     })
   } catch (e) {
     return json(500, { ok: false, message: e?.stack || e?.message || String(e) })

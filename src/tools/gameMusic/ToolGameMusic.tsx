@@ -28,6 +28,7 @@ export default function ToolGameMusic() {
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState<MusicItem[]>([])
   const [libraryLoading, setLibraryLoading] = useState(false)
+  const [musicMeta, setMusicMeta] = useState<any>(null)
 
   const fetchStatus = async () => {
     try {
@@ -159,6 +160,7 @@ export default function ToolGameMusic() {
         return
       }
       const data = await resp.json()
+      setMusicMeta(data?.meta || null)
       if (data?.wav?.url) {
         const nextUrl = getMusicUrl(data.wav.url) + `?t=${Date.now()}`
         setWavUrl(nextUrl)
@@ -260,6 +262,54 @@ export default function ToolGameMusic() {
           <a href={wavUrl} download className="text-neon-cyan underline">
             下載 WAV
           </a>
+        </div>
+      )}
+
+      {/* Visual Meta */}
+      {musicMeta && (
+        <div className="rounded-lg p-4 border border-neon-cyan/30 bg-gradient-to-br from-neon-cyan/10 via-white/5 to-purple-500/10 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-white/90 font-semibold tracking-wide">音樂資訊</div>
+            <div className="text-xs text-white/60">seed: {String(musicMeta?.seed ?? '')}</div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-md bg-black/30 border border-white/10 p-3">
+              <div className="text-xs text-white/60">Key / 調性</div>
+              <div className="text-sm text-neon-cyan font-semibold">{String(musicMeta?.key?.pitchClass || '')}</div>
+              <div className="text-xs text-white/60">{String(musicMeta?.mood || '')} · {String(musicMeta?.tempo || '')} BPM</div>
+            </div>
+            <div className="rounded-md bg-black/30 border border-white/10 p-3">
+              <div className="text-xs text-white/60">Scale / 音階</div>
+              <div className="text-sm text-white/90 break-words">{Array.isArray(musicMeta?.scale?.names) ? musicMeta.scale.names.join(' ') : ''}</div>
+              <div className="text-xs text-white/60">({Array.isArray(musicMeta?.scale?.pcs) ? musicMeta.scale.pcs.join(',') : ''})</div>
+            </div>
+            <div className="rounded-md bg-black/30 border border-white/10 p-3">
+              <div className="text-xs text-white/60">Chord Prog / 和弦進行</div>
+              <div className="text-sm text-white/90 break-words">{Array.isArray(musicMeta?.chords) ? musicMeta.chords.map((c: any) => c?.name).filter(Boolean).join(' → ') : ''}</div>
+              <div className="text-xs text-white/60">bars: {Array.isArray(musicMeta?.chords) ? musicMeta.chords.length : 0}</div>
+            </div>
+          </div>
+
+          <div className="rounded-md bg-black/30 border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-white/60">Melody / 主旋律（音名 + 數字簡譜）</div>
+              <div className="text-xs text-white/50">顯示前 64 音</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(Array.isArray(musicMeta?.melody) ? musicMeta.melody.slice(0, 64) : []).map((n: any) => (
+                <span
+                  key={String(n?.index)}
+                  className="px-2 py-1 rounded border border-neon-cyan/20 bg-black/40 text-xs text-white/90"
+                  title={`t=${n?.startS}s len=${n?.durS}s midi=${n?.midi}`}
+                >
+                  <span className="text-neon-cyan">{String(n?.degree ?? '?')}</span>
+                  <span className="text-white/40">/</span>
+                  <span>{String(n?.name ?? '')}</span>
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
