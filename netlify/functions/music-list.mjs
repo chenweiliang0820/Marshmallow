@@ -16,6 +16,11 @@ function isAudioFile(name) {
   return n.endsWith('.wav') || n.endsWith('.mp3') || n.endsWith('.ogg') || n.endsWith('.m4a') || n.endsWith('.mid')
 }
 
+function isFolderEntry(it) {
+  // Supabase Storage list(): 資料夾通常沒有 metadata 或 metadata 為 null
+  return !it?.metadata
+}
+
 export const handler = async (event) => {
   try {
     if (event.httpMethod !== 'GET') {
@@ -41,27 +46,45 @@ export const handler = async (event) => {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 
-    // list() 會同時回傳資料夾 placeholder（例如 name: '2026-01-25'），那不是檔案
-    // 如果把它當成 object key 產 publicUrl，會變成 .../music/2026-01-25（少了檔名/斜線），導致 400/404
-    const { data, error } = await client.storage.from(bucket).list(prefix, {
-      limit: 100,
+    // 1) 先列出 music/ 底下的日期資料夾（或其他子資料夾）
+    const { data: top, error: topErr } = await client.storage.from(bucket).list(prefix, {
+      limit: 200,
       sortBy: { column: 'created_at', order: 'desc' },
     })
 
-    if (error) {
-      return json(500, { ok: false, message: `Supabase list 失敗: ${error.message}` })
+    if (topErr) {
+      return json(500, { ok: false, message: `Supabase list(top) 失敗: ${topErr.message}` })
     }
 
-    const files = (data || []).filter((it) => {
-      if (!it || typeof it.name !== 'string') return false
-      if (!isAudioFile(it.name)) return false
-      // Supabase folder 物件通常會有 metadata: null 或 undefined；檔案會有 metadata
-      if (!it.metadata) return false
-      return true
+    const folders = (top || [])
+      .filter((it) => it?.name && isFolderEntry(it))
+      .map((it) => `${prefix}${it.name}/`)
+
+    // 2) 再逐一列出每個子資料夾內的檔案（不做遞迴到更深層，符合我們的 key 結構 music/YYYY-MM-DD/*.wav）
+    const allFiles = []
+    for (const folderPrefix of folders) {
+      const { data: inside, error: inErr } = await client.storage.from(bucket).list(folderPrefix, {
+        limit: 200,
+        sortBy: { column: 'created_at', order: 'desc' },
+      })
+      if (inErr) continue
+      for (const it of inside || []) {
+        if (!it?.name) continue
+        if (!it.metadata) continue
+        if (!isAudioFile(it.name)) continue
+        allFiles.push({ folderPrefix, it })
+      }
+    }
+
+    // 3) 排序 + 截斷
+    allFiles.sort((a, b) => {
+      const ac = a.it?.created_at || ''
+      const bc = b.it?.created_at || ''
+      return bc.localeCompare(ac)
     })
 
-    const items = files.slice(0, limit).map((it) => {
-      const key = `${prefix}${it.name}`
+    const items = allFiles.slice(0, limit).map(({ folderPrefix, it }) => {
+      const key = `${folderPrefix}${it.name}`
       const { data: pub } = client.storage.from(bucket).getPublicUrl(key)
       return {
         name: it.name,
