@@ -110,15 +110,11 @@ function synthNote({ buf, sampleRate, totalLen, freq, startS, durS, velocity, wa
 }
 
 function buildScale(mood) {
-  return mood === 'calm'
-    ? [0, 2, 4, 5, 7, 9, 11]
-    : [0, 2, 3, 5, 7, 8, 10]
+  return mood === 'calm' ? [0, 2, 4, 5, 7, 9, 11] : [0, 2, 3, 5, 7, 8, 10]
 }
 
 function buildProgression(mood) {
-  return mood === 'calm'
-    ? [0, 7, 9, 5]
-    : [0, 8, 3, 10]
+  return mood === 'calm' ? [0, 7, 9, 5] : [0, 8, 3, 10]
 }
 
 function generateWavBuffer({ mood, tempo, duration }) {
@@ -223,7 +219,7 @@ function generateWavBuffer({ mood, tempo, duration }) {
     })
 
     if (mood === 'calm') {
-      tt += (end - start) + (Math.random() < 0.5 ? 0 : step)
+      tt += end - start + (Math.random() < 0.5 ? 0 : step)
     } else {
       tt += step
     }
@@ -287,29 +283,25 @@ export const handler = async (event) => {
       auth: { persistSession: false, autoRefreshToken: false },
     })
 
-    const key = `music/${new Date().toISOString().slice(0, 10)}/${Date.now()}-${Math.random()
-      .toString(16)
-      .slice(2)}.wav`
+    const folder = `music/${new Date().toISOString().slice(0, 10)}/`
+    const base = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const wavKey = `${folder}${base}.wav`
 
-    const { error: uploadError } = await client.storage
-      .from(bucket)
-      .upload(key, wav, {
-        contentType: 'audio/wav',
-        upsert: false,
-      })
+    const { error: uploadError } = await client.storage.from(bucket).upload(wavKey, wav, {
+      contentType: 'audio/wav',
+      upsert: false,
+    })
 
     if (uploadError) {
       return json(500, { ok: false, message: `Supabase 上傳失敗: ${uploadError.message}` })
     }
 
-    // 預設走 public bucket：直接取 public URL
-    const { data: pub } = client.storage.from(bucket).getPublicUrl(key)
+    const { data: pubWav } = client.storage.from(bucket).getPublicUrl(wavKey)
 
     return json(200, {
       ok: true,
-      url: pub.publicUrl,
+      wav: { key: wavKey, url: pubWav.publicUrl },
       duration: actualDuration,
-      storageKey: key,
     })
   } catch (e) {
     return json(500, { ok: false, message: e?.stack || e?.message || String(e) })
