@@ -1,3 +1,4 @@
+/* global Buffer, process */
 import { createClient } from '@supabase/supabase-js'
 
 function json(statusCode, body) {
@@ -79,7 +80,7 @@ function softClip(x) {
   return Math.tanh(x)
 }
 
-function synthNote({ buf, sampleRate, totalLen, freq, startS, durS, velocity, waveMix, detuneCents }) {
+function synthNote({ buf, sampleRate, totalLen, freq, startS, durS, velocity, waveMix, detuneCents, adsr }) {
   const startI = Math.floor(startS * sampleRate)
   const endI = Math.min(totalLen, Math.floor((startS + durS) * sampleRate))
   if (endI <= startI) return
@@ -87,10 +88,10 @@ function synthNote({ buf, sampleRate, totalLen, freq, startS, durS, velocity, wa
   const detuneRatio = Math.pow(2, detuneCents / 1200)
   const f2 = freq * detuneRatio
 
-  const attack = 0.01
-  const decay = 0.08
-  const sustain = 0.6
-  const release = 0.12
+  const attack = Number.isFinite(adsr?.attack) ? adsr.attack : 0.01
+  const decay = Number.isFinite(adsr?.decay) ? adsr.decay : 0.08
+  const sustain = Number.isFinite(adsr?.sustain) ? adsr.sustain : 0.6
+  const release = Number.isFinite(adsr?.release) ? adsr.release : 0.12
 
   for (let i = startI; i < endI; i++) {
     const t = (i - startI) / sampleRate
@@ -144,7 +145,11 @@ function makeRng(seed) {
   }
 }
 
-function generateWavBuffer({ mood, tempo, duration, seed }) {
+function generateWavBuffer({ mood, tempo, duration, seed, prompt, scene, themes, atmospheres, styles, lead, loopable, avoid }) {
+  void themes
+  void atmospheres
+  void loopable
+  void avoid
   const rand = makeRng(seed)
 
   const sampleRate = 44100
@@ -155,25 +160,148 @@ function generateWavBuffer({ mood, tempo, duration, seed }) {
 
   const beat = 60 / t
 
-  let keyRoot, chordRoot, waveMix, detune, melodyDensity, velRange, noteLens
+  const styleSet = new Set(Array.isArray(styles) ? styles.map((s) => String(s)) : [])
+  const leadStr = typeof lead === 'string' ? lead : ''
+  const is8bit = styleSet.has('8-bit chiptune') || /8-?bit/i.test(prompt || '')
+  const isCinematic = styleSet.has('交響/電影感') || /cinematic|orchestral/i.test(prompt || '')
+  const isElectronic = styleSet.has('合成器電子') || /synth/i.test(prompt || '')
+  const isAmbient = styleSet.has('Ambient 氛圍音') || /ambient/i.test(prompt || '')
+  const isRock = styleSet.has('Rock/metal') || /rock|metal/i.test(prompt || '')
+  const isFolk = styleSet.has('民族風') || /民族|oriental|celtic|japan/i.test(prompt || '')
+
+  const sceneStr = typeof scene === 'string' ? scene : ''
+  const isBattleLike = ['battle', 'boss', 'stealth'].includes(sceneStr)
+  const isTownLike = ['town', 'ui'].includes(sceneStr)
+  const isPuzzleLike = ['puzzle'].includes(sceneStr)
+
+
+  // 依 lead/style/scene 生成「可聽出差異」的音色 preset（仍是合成器，但差異會很明顯）
+  const leadPreset = (() => {
+    if (/電吉他/.test(leadStr) || isRock) return 'electric-guitar'
+    if (/弦樂/.test(leadStr) || isCinematic) return 'strings'
+    if (/木管/.test(leadStr) || isFolk) return 'flute'
+    if (/銅管/.test(leadStr)) return 'brass'
+    if (/合成/.test(leadStr) || isElectronic) return 'synth-lead'
+    if (is8bit) return 'chiptune'
+    return 'piano'
+  })()
+
+  let keyRoot, chordRoot, chordWaveMix, bassWaveMix, leadWaveMix, chordDetune, leadDetune, melodyDensity, velRange, noteLens, leadRange, chordAdsr, bassAdsr, leadAdsr
   const chordsInfo = []
   const melodyNotes = []
+
   if (mood === 'calm') {
     keyRoot = 60
     chordRoot = 48
-    waveMix = [0.7, 0.25, 0.05]
-    detune = 4
+    chordDetune = 4
     melodyDensity = 1
     velRange = [0.35, 0.65]
     noteLens = [1, 2]
+    leadRange = [keyRoot + 7, keyRoot + 24]
   } else {
     keyRoot = 57
     chordRoot = 45
-    waveMix = [0.35, 0.35, 0.3]
-    detune = 8
+    chordDetune = 8
     melodyDensity = 2
     velRange = [0.45, 0.8]
     noteLens = [0.25, 0.5]
+    leadRange = [keyRoot + 12, keyRoot + 31]
+  }
+
+  // scene 讓節奏/密度明顯不同
+  if (isBattleLike) {
+    melodyDensity = Math.max(melodyDensity, 2)
+    noteLens = [0.25, 0.5]
+    velRange = [Math.max(velRange[0], 0.5), Math.min(velRange[1] + 0.1, 0.9)]
+  } else if (isTownLike) {
+    melodyDensity = 1
+    noteLens = [1, 2]
+    velRange = [0.25, 0.55]
+  } else if (isPuzzleLike) {
+    melodyDensity = 1
+    noteLens = [0.5, 1]
+    velRange = [0.3, 0.6]
+  }
+
+  // style / lead preset 影響波形/包絡/失真感
+  if (leadPreset === 'chiptune') {
+    chordWaveMix = [0.2, 0.2, 0.6]
+    bassWaveMix = [0.15, 0.15, 0.7]
+    leadWaveMix = [0.1, 0.25, 0.65]
+    leadDetune = 1
+    chordAdsr = { attack: 0.005, decay: 0.05, sustain: 0.55, release: 0.04 }
+    bassAdsr = { attack: 0.003, decay: 0.04, sustain: 0.7, release: 0.03 }
+    leadAdsr = { attack: 0.003, decay: 0.06, sustain: 0.65, release: 0.05 }
+  } else if (leadPreset === 'strings') {
+    chordWaveMix = [0.6, 0.35, 0.05]
+    bassWaveMix = [0.75, 0.2, 0.05]
+    leadWaveMix = [0.55, 0.35, 0.1]
+    leadDetune = 10
+    chordAdsr = { attack: 0.06, decay: 0.18, sustain: 0.75, release: 0.25 }
+    bassAdsr = { attack: 0.02, decay: 0.12, sustain: 0.65, release: 0.18 }
+    leadAdsr = { attack: 0.05, decay: 0.16, sustain: 0.78, release: 0.28 }
+  } else if (leadPreset === 'electric-guitar') {
+    chordWaveMix = [0.25, 0.25, 0.5]
+    bassWaveMix = [0.15, 0.15, 0.7]
+    leadWaveMix = [0.15, 0.15, 0.7]
+    leadDetune = 6
+    chordAdsr = { attack: 0.01, decay: 0.09, sustain: 0.55, release: 0.12 }
+    bassAdsr = { attack: 0.008, decay: 0.08, sustain: 0.65, release: 0.1 }
+    leadAdsr = { attack: 0.01, decay: 0.1, sustain: 0.6, release: 0.14 }
+  } else if (leadPreset === 'flute') {
+    chordWaveMix = [0.8, 0.18, 0.02]
+    bassWaveMix = [0.85, 0.12, 0.03]
+    leadWaveMix = [0.92, 0.07, 0.01]
+    leadDetune = 2
+    chordAdsr = { attack: 0.03, decay: 0.1, sustain: 0.7, release: 0.18 }
+    bassAdsr = { attack: 0.01, decay: 0.08, sustain: 0.65, release: 0.12 }
+    leadAdsr = { attack: 0.02, decay: 0.08, sustain: 0.75, release: 0.16 }
+  } else if (leadPreset === 'brass') {
+    chordWaveMix = [0.45, 0.25, 0.3]
+    bassWaveMix = [0.6, 0.2, 0.2]
+    leadWaveMix = [0.35, 0.25, 0.4]
+    leadDetune = 4
+    chordAdsr = { attack: 0.02, decay: 0.1, sustain: 0.7, release: 0.16 }
+    bassAdsr = { attack: 0.01, decay: 0.08, sustain: 0.7, release: 0.12 }
+    leadAdsr = { attack: 0.015, decay: 0.09, sustain: 0.75, release: 0.14 }
+  } else if (leadPreset === 'synth-lead') {
+    chordWaveMix = [0.25, 0.25, 0.5]
+    bassWaveMix = [0.3, 0.2, 0.5]
+    leadWaveMix = [0.15, 0.25, 0.6]
+    leadDetune = 12
+    chordAdsr = { attack: 0.02, decay: 0.12, sustain: 0.65, release: 0.2 }
+    bassAdsr = { attack: 0.01, decay: 0.1, sustain: 0.7, release: 0.18 }
+    leadAdsr = { attack: 0.008, decay: 0.06, sustain: 0.75, release: 0.12 }
+  } else {
+    // piano-ish
+    chordWaveMix = [0.75, 0.2, 0.05]
+    bassWaveMix = [0.85, 0.1, 0.05]
+    leadWaveMix = [0.7, 0.25, 0.05]
+    leadDetune = 3
+    chordAdsr = { attack: 0.008, decay: 0.1, sustain: 0.55, release: 0.12 }
+    bassAdsr = { attack: 0.006, decay: 0.09, sustain: 0.6, release: 0.1 }
+    leadAdsr = { attack: 0.006, decay: 0.12, sustain: 0.5, release: 0.14 }
+  }
+
+  // cinematic / ambient：加長 release、讓和弦更厚
+  if (isCinematic || isAmbient) {
+    chordAdsr = { ...chordAdsr, release: Math.max(chordAdsr.release, 0.22), sustain: Math.min(0.85, chordAdsr.sustain + 0.1) }
+    leadAdsr = { ...leadAdsr, release: Math.max(leadAdsr.release, 0.22) }
+    chordDetune = Math.max(chordDetune, 8)
+  }
+
+  // rock：更亮（更多 saw） + 更硬（後面 softClip 會吃掉峰值，但感覺會更兇）
+  if (isRock) {
+    leadWaveMix = [0.1, 0.1, 0.8]
+    bassWaveMix = [0.1, 0.1, 0.8]
+    leadDetune = Math.max(leadDetune, 10)
+  }
+
+  // ambient：旋律更少、音更長
+  if (isAmbient) {
+    melodyDensity = 1
+    noteLens = [2, 4]
+    velRange = [0.25, 0.55]
   }
 
   const scale = buildScale(mood)
@@ -211,8 +339,9 @@ function generateWavBuffer({ mood, tempo, duration, seed }) {
         startS: t0,
         durS: Math.min(barLen, d - t0),
         velocity: padVel,
-        waveMix,
-        detuneCents: detune,
+        waveMix: chordWaveMix,
+        detuneCents: chordDetune,
+        adsr: chordAdsr,
       })
     }
 
@@ -228,8 +357,9 @@ function generateWavBuffer({ mood, tempo, duration, seed }) {
         startS: bt,
         durS: beat * 0.95,
         velocity: bassVel,
-        waveMix: [0.85, 0.1, 0.05],
+        waveMix: bassWaveMix,
         detuneCents: 0,
+        adsr: bassAdsr,
       })
     }
 
@@ -239,7 +369,7 @@ function generateWavBuffer({ mood, tempo, duration, seed }) {
 
   // melody
   const step = beat / melodyDensity
-  const pitches = scale.flatMap((s) => [keyRoot + s, keyRoot + 12 + s])
+  const pitches = scale.flatMap((s) => [keyRoot + s, keyRoot + 12 + s]).filter((p) => p >= leadRange[0] && p <= leadRange[1])
   let tt = 0
   let noteIndex = 0
   while (tt < d) {
@@ -258,8 +388,9 @@ function generateWavBuffer({ mood, tempo, duration, seed }) {
       startS: start,
       durS: end - start,
       velocity: vel,
-      waveMix: [0.75, 0.2, 0.05],
-      detuneCents: detune,
+      waveMix: leadWaveMix,
+      detuneCents: leadDetune,
+      adsr: leadAdsr,
     })
 
     melodyNotes.push({
@@ -301,6 +432,19 @@ function generateWavBuffer({ mood, tempo, duration, seed }) {
     mood,
     tempo: t,
     duration: d,
+    synthPreset: {
+      leadPreset,
+      chordWaveMix,
+      bassWaveMix,
+      leadWaveMix,
+      chordAdsr,
+      bassAdsr,
+      leadAdsr,
+      chordDetune,
+      leadDetune,
+      melodyDensity,
+      noteLens,
+    },
     key: {
       rootMidi: keyRoot,
       name: noteName(keyRoot),
