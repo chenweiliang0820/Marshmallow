@@ -2,6 +2,8 @@ import { useParams, Link } from 'react-router-dom'
 import { tools } from '@/data/tools'
 import ToolCanva from '@/tools/canva/ToolCanva'
 import ToolGameMusic from '@/tools/gameMusic/ToolGameMusic'
+import ToolStickmanGhost from '@/tools/stickmanGhost/ToolStickmanGhost'
+import ToolAvatarGenerator from '@/tools/avatarGenerator/ToolAvatarGenerator'
 
 export default function ToolPage() {
   const { toolId } = useParams<{ toolId: string }>()
@@ -32,6 +34,10 @@ export default function ToolPage() {
         return <ToolCanva />
       case 'game-music':
         return <ToolGameMusic />
+      case 'stickman-ghost':
+        return <ToolStickmanGhost />
+      case 'avatar-generator':
+        return <ToolAvatarGenerator />
       default:
         return (
           <div className="glass-effect p-8 rounded-xl text-center">

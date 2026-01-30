@@ -64,6 +64,24 @@ export const tools: Tool[] = [
     tags: ['音樂', 'MIDI', 'WAV', '遊戲'],
     route: '/tools/game-music',
   },
+  {
+    id: 'stickman-ghost',
+    name: '火柴人幽靈迷宮（遊戲）',
+    description: '2D 俯視角小遊戲：躲避幽靈、在迷宮中找出口。',
+    icon: '🕹️',
+    category: 'utility',
+    tags: ['遊戲', '迷宮', '幽靈', '火柴人'],
+    route: '/tools/stickman-ghost',
+  },
+  {
+    id: 'avatar-generator',
+    name: '公仔圖像生成',
+    description: '輸入文字描述，生成獨特的盒玩風格公仔圖像。',
+    icon: '🤖',
+    category: 'design',
+    tags: ['AI', '圖像生成', '公仔', '設計'],
+    route: '/tools/avatar-generator',
+  },
 ]
 
 export const categories = [
