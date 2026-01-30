@@ -12,8 +12,8 @@ function json(statusCode, body) {
 }
 
 function pickAuthHeaders() {
-  const key = process.env.TBNX_API_KEY || process.env.IMAGE_API_KEY || ''
-  const headerName = (process.env.TBNX_API_KEY_HEADER || 'Authorization').trim()
+  const key = process.env.IMAGE_API_KEY || process.env.TBNX_API_KEY || ''
+  const headerName = (process.env.IMAGE_API_KEY_HEADER || process.env.TBNX_API_KEY_HEADER || 'Authorization').trim()
 
   if (!key) return {}
 
@@ -31,8 +31,8 @@ export const handler = async (event) => {
       return json(405, { ok: false, message: 'Method Not Allowed' })
     }
 
-    const baseUrl = (process.env.TBNX_BASE_URL || 'https://tbnx.plus7.plus/').replace(/\/+$/, '')
-    const model = process.env.TBNX_IMAGE_MODEL || 'gemini-3-pro-image-preview'
+    const baseUrl = (process.env.IMAGE_API_BASE_URL || process.env.TBNX_BASE_URL || 'https://tbnx.plus7.plus/').replace(/\/+$/, '')
+    const model = process.env.IMAGE_API_MODEL || process.env.TBNX_IMAGE_MODEL || 'gemini-3-pro-image-preview'
 
     const body = event.body ? JSON.parse(event.body) : {}
 
