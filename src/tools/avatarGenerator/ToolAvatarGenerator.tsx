@@ -1,4 +1,14 @@
 import { useMemo, useState } from 'react'
+import { getImageProviderConfig } from '@/lib/aiProviders'
+
+type ProxyImageResponse = {
+  ok: boolean
+  imageUrl: string | null
+  imageBase64: string | null
+  raw?: unknown
+  message?: string
+  upstream?: string
+}
 
 type AvatarParams = {
   characterName: string
@@ -13,6 +23,8 @@ type Result = {
   meta: {
     params: AvatarParams
     createdAt: string
+    provider: 'mock' | 'api'
+    error?: string
   }
 }
 
@@ -20,9 +32,17 @@ function buildMockImageUrl(params: AvatarParams) {
   const text = `${params.characterName}\n盒玩公仔（Mock）`
   const bg = params.background.replace('#', '') || 'ffffff'
   const size = `${params.size}x${params.size}`
-
-  // placehold.co 支援 /{w}x{h}/{bg}/{fg}?text=...
   return `https://placehold.co/${size}/${bg}/111111?text=${encodeURIComponent(text)}`
+}
+
+// 檢查環境變數是否設定，決定是否啟用真實 API 模式
+const isApiConfigured = () => {
+  try {
+    getImageProviderConfig()
+    return true
+  } catch (e) {
+    return false
+  }
 }
 
 export default function ToolAvatarGenerator() {
@@ -36,22 +56,72 @@ export default function ToolAvatarGenerator() {
 
   const [isGenerating, setIsGenerating] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
+  const apiEnabled = useMemo(isApiConfigured, [])
   const previewUrl = useMemo(() => buildMockImageUrl(params), [params])
 
   async function onGenerate() {
     setIsGenerating(true)
-    await new Promise((r) => setTimeout(r, 650))
+    setError(null)
 
-    setResult({
-      imageUrl: previewUrl,
-      meta: {
-        params,
-        createdAt: new Date().toISOString(),
-      },
-    })
+    if (!apiEnabled) {
+      // 維持 Mock 模式
+      await new Promise((r) => setTimeout(r, 650))
+      setResult({
+        imageUrl: previewUrl,
+        meta: { params, createdAt: new Date().toISOString(), provider: 'mock' },
+      })
+      setIsGenerating(false)
+      return
+    }
 
-    setIsGenerating(false)
+    // 真實 API 模式
+    try {
+      const { model } = getImageProviderConfig()
+      const payload = {
+        model: model || 'gemini-3-pro-image-preview', // 如果 env 沒設，用您指定的
+        prompt: `${params.description} ${params.characterName}, ${params.pose} pose, in the style of a vinyl toy figure, product shot, studio lighting, white background`,
+        n: 1,
+        size: '1024x1024', // Gemini 常見尺寸
+      }
+
+      // 改走 Netlify Function 代理（同源 /api/image/generate）
+      const res = await fetch('/api/image/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => '')
+        throw new Error(`Proxy error: ${res.status} ${res.statusText}${t ? ` - ${t}` : ''}`)
+      }
+
+      const proxy = (await res.json()) as ProxyImageResponse
+
+      if (!proxy.ok) {
+        throw new Error(proxy.message || 'Proxy returned ok=false')
+      }
+
+      const imageUrl =
+        proxy.imageUrl ||
+        (proxy.imageBase64 ? `data:image/png;base64,${proxy.imageBase64}` : null)
+
+      if (!imageUrl) {
+        throw new Error('Proxy did not return imageUrl or imageBase64')
+      }
+
+      setResult({
+        imageUrl,
+        meta: { params, createdAt: new Date().toISOString(), provider: 'api' },
+      })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setError(`API 呼叫失敗: ${message}`)
+    } finally {
+      setIsGenerating(false)
+    }
   }
 
   return (
@@ -132,6 +202,12 @@ export default function ToolAvatarGenerator() {
 
       <div className="glass-effect rounded-xl p-6">
         <div className="text-lg font-semibold text-gray-100 mb-4">預覽</div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
 
         <div className="rounded-xl border border-white/10 overflow-hidden bg-black/20">
           <img src={result?.imageUrl ?? previewUrl} alt="avatar preview" className="w-full h-auto" />

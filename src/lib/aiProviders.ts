@@ -1,6 +1,7 @@
 type ProviderConfig = {
   baseUrl: string
   apiKey?: string
+  model?: string
 }
 
 function required(name: string, value: string | undefined): string {
@@ -11,13 +12,15 @@ function required(name: string, value: string | undefined): string {
 export function getImageProviderConfig(): ProviderConfig {
   const baseUrl = required('VITE_IMAGE_API_BASE_URL', import.meta.env.VITE_IMAGE_API_BASE_URL)
   const apiKey = import.meta.env.VITE_IMAGE_API_KEY
-  return { baseUrl, apiKey }
+  const model = import.meta.env.VITE_IMAGE_API_MODEL
+  return { baseUrl, apiKey, model }
 }
 
 export function getTextProviderConfig(): ProviderConfig {
   const baseUrl = required('VITE_TEXT_API_BASE_URL', import.meta.env.VITE_TEXT_API_BASE_URL)
   const apiKey = import.meta.env.VITE_TEXT_API_KEY
-  return { baseUrl, apiKey }
+  const model = import.meta.env.VITE_TEXT_API_MODEL
+  return { baseUrl, apiKey, model }
 }
 
 export async function callTextApi<T>(path: string, payload: unknown): Promise<T> {
